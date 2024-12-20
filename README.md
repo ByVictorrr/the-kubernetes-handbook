@@ -309,3 +309,70 @@ selector:
   3. LoadBalancer
   4. ExternalName
 
+* In this example, we are using `spec.type: LoadBalancer`
+  * Its a std way for exposing a service outside the cluster
+  * This service will give you an IP address that you can use to connected to the applications running inside your cluster
+
+* The `LoadBalncer` type requires two port values to work properly:
+  1. `spec.ports.port`: value is for accessing the pod itself and its value can be anything you want.
+  2. `spec.ports.targetPort`: the port of the running container
+
+* The `selector` field is used to identify the objects that will be connected to this service.
+  * matching their key-value map to labels of pods, etc, 
+  * Example: we already have a pod with one key-value pair `component: web`
+
+* To feed this file to kubernetes you will again use the `apply` command:
+
+```shell
+$ kubectl apply -f hello-kube/k8s/hello-kube-load-balancer-service.yaml
+service/hello-kube-load-balancer-service created
+```
+* To make sure the load balancer has been created successfully execute the following command:
+```shell
+> kubectl get service
+NAME                               TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)        AGE
+hello-kube-load-balancer-service   LoadBalancer   10.105.152.205   <pending>     80:30535/TCP   74s
+kubernetes                         ClusterIP      10.96.0.1        <none>        443/TCP        4d3h
+
+```
+**Note: metadata.name=NAME**
+* Now to open the application use the following command:
+```shell
+> minikube service hello-kube-load-balancer-service
+|-----------|----------------------------------|-------------|---------------------------|
+| NAMESPACE |               NAME               | TARGET PORT |            URL            |
+|-----------|----------------------------------|-------------|---------------------------|
+| default   | hello-kube-load-balancer-service |          80 | http://192.168.49.2:30535 |
+|-----------|----------------------------------|-------------|---------------------------|
+🎉  Opening service default/hello-kube-load-balancer-service in default browser...
+Opening in existing browser session.
+
+```
+
+### The Kubernetes Dashboard
+* With the Kubernetes dashboard is a graphical UI that you can use to mange your workloads, services, and more
+
+```shell
+> minikube dashboard
+🔌  Enabling dashboard ...
+    ▪ Using image docker.io/kubernetesui/dashboard:v2.7.0
+    ▪ Using image docker.io/kubernetesui/metrics-scraper:v1.0.8
+💡  Some dashboard features require the metrics-server addon. To enable all features please run:
+
+        minikube addons enable metrics-server
+
+🤔  Verifying dashboard health ...
+🚀  Launching proxy ...
+🤔  Verifying proxy health ...
+🎉  Opening http://127.0.0.1:36579/api/v1/namespaces/kubernetes-dashboard/services/http:kubernetes-dashboard:/proxy/ in your default browser...
+Opening in existing browser session.
+
+
+```
+
+
+
+* Looking through there it provides the compile possible to create, manage, and delete object from a GUI.
+
+
+## Working with Multi-Container Applications

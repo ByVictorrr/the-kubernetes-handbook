@@ -10,10 +10,13 @@ spec:
   template:
     metadata:
       labels:
-        componet: api
+        component: api
     spec:
       containers:
         - name: api
-          image: fhsincy/notes-api
+          image: fhsinchy/notes-api
           ports:
             - containerPort: 3000
+          env:
+            - name: DB_CONNECTION
+              value: pg

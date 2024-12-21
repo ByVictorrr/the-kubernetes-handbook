@@ -828,6 +828,94 @@ spec:
 
 Now lets re-apply our changes from  `notes-api/k8s/postgres-deployment.yaml`
 ```shell
-kubectl apply -f  notes-api/k8s/postgres-deployment.yaml
+> kubectl apply -f notes-api/k8s/postgres-deployment.yaml
+deployment.apps/postgres-deployment configured
+
 
 ```
+## Why a PostgreSQL Service is Needed
+* Directly exposing the PostgreSQL pod’s port to the external network is unnecessary and can create security risks.
+* A **ClusterIP** Service provides internal access within the Kubernetes cluster without exposing the database externally.
+
+Create a new file for postgres service called `notes-api/k8/postgres-cluster-ip-service.yaml`
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-cluster-ip-service
+spec:
+  type: ClusterIP
+  selector:
+    component: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+```
+
+## Why an NOTES-API Service is Needed
+* Exposing the API to the outside world (outside the cluster)
+
+Create a new file for api service called `notes-api/k8/api-load-balencer-service.yaml`
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-load-balancer-service
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 3000
+      targetPort: 3000
+  selector:
+    component: api
+```
+
+## The last thing to do for the multi-container Application
+* You may have wondered where the data is for the notes-api needs to login or get the url for postgres connection
+
+We the to edit `notes-api/k8s/api-deployment.yaml` and add the missing environment variables
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-deployment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      component: api
+  template:
+    metadata:
+      labels:
+        component: api
+    spec:
+      containers:
+        - name: api
+          image: fhsinchy/notes-api
+          ports:
+            - containerPort: 3000
+          env:
+            - name: DB_CONNECTION
+              value: pg
+            - name: DB_HOST
+              value: postgres-cluster-ip-service
+            - name: DB_PORT
+              value: '5432'
+            - name: DB_USER
+              value: postgres
+            - name: DB_DATABASE
+              value: notesdb
+            - name: DB_PASSWORD
+              value: 63eaQB9wtLqmNBpg
+```
+
+**How It All Comes Together**
+1. Database Connectivity:
+    * The `NOTES-API` pods retrieve connection details (e.g., DB_HOST, DB_PORT, DB_USER, DB_PASSWORD) from environment variables defined in the deployment.
+    * The DB_HOST points to the PostgreSQL service name (postgres-cluster-ip-service), allowing stable communication regardless of pod IP changes.
+2. Exposing the API:
+   * The api-load-balancer-service exposes the NOTES-API to external users via a load balancer.
+   * Traffic to the service on port 3000 is routed to one of the NOTES-API pods.
+
+3. Scaling:
+   * The deployment specifies replicas: 3, ensuring that three NOTES-API pods are running. The service automatically load-balances traffic between these pods.

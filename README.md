@@ -919,3 +919,279 @@ spec:
 
 3. Scaling:
    * The deployment specifies replicas: 3, ensuring that three NOTES-API pods are running. The service automatically load-balances traffic between these pods.
+
+Now lets re-apply everything:
+```shell
+> kubectl apply -f notes-api/k8s
+deployment.apps/api-deployment configured
+service/api-load-balancer-service created
+persistentvolumeclaim/database-persistent-volume-claim unchanged
+persistentvolume/database-persistent-volume created
+service/postgres-cluster-ip-service created
+deployment.apps/postgres-deployment unchanged
+
+
+> kubectl get deployments
+NAME                  READY   UP-TO-DATE   AVAILABLE   AGE
+api-deployment        3/3     3            3           29h
+postgres-deployment   1/1     1            1           28h
+> minikube service api-load-balancer-service
+|-----------|---------------------------|-------------|---------------------------|
+| NAMESPACE |           NAME            | TARGET PORT |            URL            |
+|-----------|---------------------------|-------------|---------------------------|
+| default   | api-load-balancer-service |        3000 | http://192.168.49.2:30220 |
+|-----------|---------------------------|-------------|---------------------------|
+🎉  Opening service default/api-load-balancer-service in default browser...
+Opening in existing browser session.
+
+
+```
+* To actually interact with the API you will have to use postman etc
+
+## Setting up NGINX Ingress Controllers
+* The need for a Ingress controllers is that it will route outside traffic to certain `Services` based on its resources.
+* The controller we will be using is [NGINX Ingress](https://github.com/kubernetes/ingress-nginx/blob/master/README.md)
+* Ingress: Acts as the entry point and router for the application, listening on port 80 (default NGINX Ingress port).
+* Path-Based Routing:
+  - Requests to / (e.g., https://kube-notes.test/foo) are routed to the front-end service.
+  - Requests to /api (e.g., https://kube-notes.test/api/foo) are routed to the back-end API service.
+* Design Choice: Path-based routing is used instead of sub-domains to match the application’s design.
+
+###  Take a look at nginx/production.conf
+* Here is an example that might help us understand the NGINX Ingress Controller
+```
+upstream client {
+    server client:8080;
+}
+
+upstream api {
+    server api:3000;
+}
+
+server {
+    location / {
+        proxy_pass http://client;
+    }
+
+    location /api {
+        rewrite /api/(.*) /$1 break;
+        proxy_pass http://api;
+    }
+}
+```
+* This configuration defines Nginx as a reverse proxy that routes traffic to two backend services:
+    1. Frontend (client): Handles requests to /.
+    2. API (api): Handles requests to /api. The /api prefix is removed before forwarding to the backend.
+
+
+![app design](imgs/ingress.svg)
+* In this sub-section, we will hav eto write four new configuration files:
+  1. `ClusterIP` configuration for the API deployment
+  2. `Deployment` configuration for the front-end application
+  3. `ClusterIP` configuration for the front-end application
+  4. `Ingress` configuration for the routing
+
+* Ingress Handling:
+  - The Ingress will manage external traffic and routing for the API.
+  - The API is no longer exposed directly to the outside world.
+* ClusterIP Service:
+  - The API is exposed internally within the cluster using a ClusterIP service.
+  - This ensures secure and efficient internal communication.
+* Configuration:
+  - Builds on previous concepts.
+  - Straightforward, requiring no additional explanation.
+  
+### Configuration Example: `api-cluster-ip-service.yaml`
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-cluster-ip-service
+spec:
+  type: ClusterIP
+  selector:
+    component: api
+  ports:
+    - port: 3000
+      targetPort: 3000
+
+```
+
+
+### Configuration Example: `client-deployment.yaml`
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client-deployment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      component: client
+  template:
+    metadata:
+      labels:
+        component: client
+    spec:
+      containers:
+        - name: client
+          image: fhsinchy/notes-client
+          ports:
+            - containerPort: 8080
+          env:
+            - name: VUE_APP_API_URL
+              value: /api
+```
+
+**VUE_APP_API_URL**: Specifies the API endpoint for forwarding requests.
+* These requests are routed through the Ingress, which directs them to the appropriate back-end API service.
+
+### Configuration Example: `client-cluster-ip-service.yaml`
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: client-cluster-ip-service
+spec:
+  type: ClusterIP
+  selector:
+    component: client
+  ports:
+    - port: 8080
+      targetPort: 8080
+```
+
+- **Functionality**:
+  - Exposes port `8080` within the cluster, where the front-end application runs by default.
+
+
+### Configuration Example: `ingress-service.yaml`
+### Notes
+
+#### **Ingress Configuration**
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+name: ingress-service
+annotations:
+  kubernetes.io/ingress.class: nginx
+  nginx.ingress.kubernetes.io/rewrite-target: /$1
+spec:
+rules:
+  - http:
+      paths:
+      - pathType: Prefix
+        path: "/?(.*)"
+        backend:
+          service:
+            name: client-cluster-ip-service
+            port:
+              number: 8080
+      - pathType: Prefix
+        path: "/api/?(.*)"
+        backend:
+          service:
+            name: api-cluster-ip-service
+            port:
+              number: 3000
+```
+
+- **Ingress Basics**:
+  - Acts as an entry point for routing HTTP traffic to different services within the cluster.
+  - Handles path-based routing for requests.
+
+- **Annotations**:
+  - `kubernetes.io/ingress.class: nginx`: Specifies that this Ingress should be controlled by the NGINX Ingress Controller.
+  - `nginx.ingress.kubernetes.io/rewrite-target: /$1`: Rewrites the URL paths using a simple regex pattern.
+
+- **Rules**:
+  - Defines routing paths within `spec.rules.http.paths`:
+    - `/?(.*)` routes all requests to the **client-cluster-ip-service** on port `8080` (frontend).
+    - `/api/?(.*)` routes all requests to the **api-cluster-ip-service** on port `3000` (backend API).
+
+- **Regex Paths**:
+  - `/?(.*)` and `/api/?(.*)`:
+    - `?(.*)` captures the remaining path for routing.
+    - Ensures that the correct service receives the request while preserving the URL format.
+
+---
+
+#### **Minikube Ingress Addon**
+- **Enable Ingress**:
+  - Run the following command to activate the NGINX Ingress addon in Minikube:
+```bash
+> minikube addons enable ingress
+💡  ingress is an addon maintained by Kubernetes. For any concerns contact minikube on GitHub.
+You can view the list of minikube maintainers at: https://github.com/kubernetes/minikube/blob/master/OWNERS
+    ▪ Using image registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.4.3
+    ▪ Using image registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.4.3
+    ▪ Using image registry.k8s.io/ingress-nginx/controller:v1.11.2
+🔎  Verifying ingress addon...
+🌟  The 'ingress' addon is enabled
+```
+
+- **Disable Ingress**:
+  - Use the following command to deactivate the addon:
+    ```bash
+    minikube addons disable ingress
+    ```
+
+---
+
+#### **Notes for Best Practices**:
+- **Ingress API Version**: The `apiVersion` might differ depending on your Kubernetes version (e.g., `extensions/v1` in older versions).
+- **Official Docs**:
+  - Always refer to the latest Kubernetes and NGINX documentation for updates on rewriting configurations or Ingress features.
+
+
+## Apply all configuration files for `fullstack-notes-application`
+```shell
+> kubectl delete ingress --all
+No resources found
+
+> kubectl delete service --all
+service "api-load-balancer-service" deleted
+service "hello-kube-load-balancer-service" deleted
+service "kubernetes" deleted
+service "postgres-cluster-ip-service" deleted
+
+> kubectl delete deployment --all
+deployment.apps "api-deployment" deleted
+deployment.apps "postgres-deployment" deleted
+
+> kubectl delete persistentvolumeclaim --all
+persistentvolumeclaim "database-persistent-volume-claim" deleted
+
+```
+* Now apply all the `fullstack-notes-application/k8s`
+```shell
+> kubectl apply -f fullstack-notes-application/k8s
+service/api-cluster-ip-service unchanged
+deployment.apps/api-deployment unchanged
+service/client-cluster-ip-service unchanged
+deployment.apps/client-deployment unchanged
+persistentvolumeclaim/database-persistent-volume-claim unchanged
+Warning: annotation "kubernetes.io/ingress.class" is deprecated, please use 'spec.ingressClassName' instead
+Warning: path /?(.*) cannot be used with pathType Prefix
+Warning: path /api/?(.*) cannot be used with pathType Prefix
+ingress.networking.k8s.io/ingress-service created
+service/postgres-cluster-ip-service unchanged
+deployment.apps/postgres-deployment unchanged
+
+```
+
+* Now its time to see what our IP Address is
+```shell
+> kubectl get ingress
+
+NAME              CLASS    HOSTS   ADDRESS        PORTS   AGE
+ingress-service   <none>   *       192.168.49.2   80      101s
+```
+* Open up a browser enter `http://192.168.49.2`
+
+![browser](imgs/client_web_app.png)
+
+
+## Secrets and Config Maps in Kubernetes

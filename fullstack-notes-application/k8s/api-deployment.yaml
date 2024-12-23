@@ -19,8 +19,8 @@ spec:
             - containerPort: 3000
           # using ConfigMap to reduce clutter of env
           envFrom:
-              -configMapRef:
-                name: api-config-map
+              - configMapRef:
+                  name: api-config-map
           env:
             # not putting the password directly anymore
             - name: DB_PASSWORD

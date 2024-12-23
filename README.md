@@ -1278,9 +1278,114 @@ secret/postgres-secret created
 ```
 
 ### ConfigMap configuration
+**ConfigMap** in Kubernetes is used to store non-sensitive configuration data as key-value pairs
+* The object can be used to be injected into containers as environment variables. 
+* It is similar to a Secret but does not handle sensitive data like passwords.
+
+To manage environment variables for the API deployment, create a file named `api-config-map.yaml` in the `k8s` directory with the following structure:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-config-map
+data:
+  DB_CONNECTION: pg
+  DB_HOST: postgres-cluster-ip-service
+  DB_PORT: '5432'
+  DB_USER: postgres
+  DB_DATABASE: notesdb
+```
+
+- **apiVersion, kind, and metadata**: Standard Kubernetes fields.
+- **data**: Holds key-value pairs for environment variables. Keys must exactly match what the API expects.
+
+#### Using ConfigMap in Deployment
+
+Update `api-deployment.yaml` to reference the ConfigMap:
+
+```yaml
+envFrom:
+  - configMapRef:
+      name: api-config-map
+```
+
+This pulls all variables from the ConfigMap into the container. Sensitive values (e.g., `DB_PASSWORD`) remain in Secrets and are defined separately under the `env` section.
+
+#### Applying Changes
+
+Apply the ConfigMap and other configurations with:
+
+```bash
+kubectl apply -f k8s
+```
+
+#### Accessing the Application
+
+Once pods are running (`kubectl get pods`), access the notes app using the Minikube IP:
+
+```bash
+minikube ip
+# Example output: 172.17.0.2
+```
+
+Visit `http://<minikube-ip>:80` to access the app.
+
+For further details about ConfigMaps and Secrets, consult the official Kubernetes documentation.
+
 
 ## Performing Update Rollouts in Kubernetes
 
 
+To update a container image in Kubernetes, an imperative approach using the `kubectl set image` command is often used. This method is practical for quick updates.
 
 
+### Updating a Container Image
+
+1. **Check Current Deployment**:
+   In the `client-deployment.yaml` file:
+   ```yaml
+   containers:
+       - name: client
+         image: fhsinchy/notes-client
+   ```
+
+2. **Use the `kubectl set image` Command**:
+   General syntax:
+   ```bash
+   kubectl set image <resource type>/<resource name> <container name>=<image name>:<tag>
+   ```
+   Example:
+   ```bash
+   kubectl set image deployment/client-deployment client=fhsinchy/notes-client:edge
+   ```
+
+3. **Monitor the Update**:
+   Use:
+   ```bash
+   kubectl get pods
+   ```
+
+4. **Verify the Update**:
+   Confirm the new image:
+   ```bash
+   kubectl describe pod <pod-name> | grep 'Image'
+   ```
+   Example output:
+   ```
+   Image: fhsinchy/notes-client:edge
+   ```
+
+### Accessing the Updated Application
+
+Once pods are running, access the app via the Minikube IP:
+```bash
+minikube ip
+```
+Visit `http://<minikube-ip>:80` to use the app.
+
+### Notes
+
+- Avoid using `:latest` tags, as Kubernetes won't automatically pull the latest image.
+- CI/CD workflows can simplify and automate the update process.
+```

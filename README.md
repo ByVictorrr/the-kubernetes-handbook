@@ -1193,5 +1193,20 @@ ingress-service   <none>   *       192.168.49.2   80      101s
 
 ![browser](imgs/client_web_app.png)
 
+* The `NGINX Ingress Controller` leverages Kubernetes `ConfigMaps`:
+  * It stores and manage NGINX configurations, allowing you to customize and optimize behavior such as:
+    1. load balancing
+    2. caching, 
+    3. SSL settings
+  * Mastering its configuration unlocks powerful networking and traffic management capabilities for your Kubernetes cluster.
+```shell
+> kubectl get configmaps -n ingress-nginx
+NAME                       DATA   AGE
+ingress-nginx-controller   1      77m
+kube-root-ca.crt           1      77m
+tcp-services               0      77m
+udp-services               0      77m
+```
 
 ## Secrets and Config Maps in Kubernetes
+

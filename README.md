@@ -1208,5 +1208,79 @@ tcp-services               0      77m
 udp-services               0      77m
 ```
 
-## Secrets and Config Maps in Kubernetes
+## Secrets and ConfigMaps in Kubernetes
+
+### Why Use Secrets?
+- Storing sensitive data like passwords (e.g., `POSTGRES_PASSWORD`) in plain text is insecure.
+- Kubernetes Secrets securely store sensitive data such as passwords, tokens, and API keys.
+
+###  Steps to Create and Use Secrets:
+
+1. **Base64 Encode the Secret:**
+   - Use base64 encoding for sensitive data.
+   - Example:
+     ```bash
+     echo -n "63eaQB9wtLqmNBpg" | base64
+     ```
+     Output: `NjNlYVFCOXd0THFtTkJwZw==`
+
+2. **Create a Secret YAML File:**
+   - Define the secret in a file, e.g., `postgres-secret.yaml`:
+     ```yaml
+     apiVersion: v1
+     kind: Secret
+     metadata:
+       name: postgres-secret
+     data:
+       password: NjNlYVFCOXd0THFtTkJwZw==
+     ```
+
+3. **Update Deployment Configuration to Use the Secret:**
+
+   - **Database Deployment (`postgres-deployment.yaml`):**
+     - Use `valueFrom.secretKeyRef` to reference the secret:
+       ```yaml
+       env:
+         - name: POSTGRES_PASSWORD
+           valueFrom:
+             secretKeyRef:
+               name: postgres-secret
+               key: password
+       ```
+
+   - **API Deployment (`api-deployment.yaml`):**
+     - Use the same approach for database password access:
+       ```yaml
+       env:
+         - name: DB_PASSWORD
+           valueFrom:
+             secretKeyRef:
+               name: postgres-secret
+               key: password
+       ```
+
+### Key Points:
+- `valueFrom.secretKeyRef` decodes the base64-encoded value internally.
+- The `name` field identifies the Secret, and `key` specifies the key in the key-value pair.
+
+* Now apply the changes:
+```shell
+> kubectl apply -f fullstack-notes-application/k8s
+service/api-cluster-ip-service unchanged
+deployment.apps/api-deployment configured
+service/client-cluster-ip-service unchanged
+deployment.apps/client-deployment unchanged
+persistentvolumeclaim/database-persistent-volume-claim unchanged
+ingress.networking.k8s.io/ingress-service unchanged
+service/postgres-cluster-ip-service unchanged
+deployment.apps/postgres-deployment configured
+secret/postgres-secret created
+```
+
+### ConfigMap configuration
+
+## Performing Update Rollouts in Kubernetes
+
+
+
 
